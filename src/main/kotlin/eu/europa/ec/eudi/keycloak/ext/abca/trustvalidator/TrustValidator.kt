@@ -28,13 +28,19 @@ import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonIgnoreUnknownKeys
+import java.security.cert.X509Certificate
 
 fun interface TrustValidator {
-    suspend fun isTrusted(chain: NonEmptyList<Base64X509Certificate>, context: VerificationContext): Boolean
+    suspend fun isTrusted(chain: NonEmptyList<Base64X509Certificate>, context: VerificationContext): IssuerTrustResult
 
     companion object {
-        val Ignored = TrustValidator { _, _ -> true }
+        val Ignored = TrustValidator { chain: NonEmptyList<Base64X509Certificate>, _ -> IssuerTrustResult.IsTrusted(chain.first()) }
     }
+}
+
+sealed interface IssuerTrustResult {
+    data class IsTrusted(val x509Certificate: X509Certificate) : IssuerTrustResult
+    data object NotTrusted : IssuerTrustResult
 }
 
 @Serializable
@@ -49,18 +55,26 @@ enum class VerificationContext {
 fun TrustValidator(
     httpClient: HttpClient,
     service: Url,
-): TrustValidator = TrustValidator { chain, context -> httpClient.isTrusted(service, chain, context) }
+): TrustValidator = TrustValidator { chain, context ->
+    val trustResult = httpClient.isTrusted(service, chain, context)
+
+    if (trustResult.trusted) {
+        IssuerTrustResult.IsTrusted(trustResult.trustAnchor)
+    } else {
+        IssuerTrustResult.NotTrusted
+    }
+}
 
 private suspend fun HttpClient.isTrusted(
     service: Url,
     chain: NonEmptyList<Base64X509Certificate>,
     context: VerificationContext,
-): Boolean = post(service.toString()) {
+): TrustResponse = post(service.toString()) {
     setBody(TrustRequest(chain, context))
     contentType(ContentType.Application.Json)
     accept(ContentType.Application.Json)
     expectSuccess = true
-}.body<TrustResponse>().trusted
+}.body<TrustResponse>()
 
 @Serializable
 private data class TrustRequest(
@@ -72,4 +86,5 @@ private data class TrustRequest(
 @JsonIgnoreUnknownKeys
 internal data class TrustResponse(
     @Required @SerialName("trusted") val trusted: Boolean,
+    @Required @SerialName("trustAnchor") val trustAnchor: Base64X509Certificate,
 )

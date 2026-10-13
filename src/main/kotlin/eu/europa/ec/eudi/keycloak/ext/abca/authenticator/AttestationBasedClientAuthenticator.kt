@@ -33,6 +33,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator.JadesBaseLineProfileVe
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientStatusIssuerTrusted
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IssuerTrustResult
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
@@ -128,12 +129,6 @@ class AttestationBasedClientAuthenticator(
         }
         val config = ClientAuthenticatorConfig(client, authenticatorConfig)
 
-        try {
-            config.isClientAttestationSignedUsingJAdESBB(clientAttestation.jwt, Clock.System, config.isClientAttestationIssuerTrusted)
-        } catch (e: IllegalArgumentException) {
-            raise(ClientAuthenticationError.ClientAttestationNotJadesBBConformant)
-        }
-
         val now = clock.now().dropNanos()
         ensure(now < (clientAttestation.claims.expiresAt + config.clockSkew)) {
             ClientAuthenticationError.ExpiredClientAttestation
@@ -152,9 +147,18 @@ class AttestationBasedClientAuthenticator(
             }
         }
 
-        ensure(config.isClientAttestationIssuerTrusted(clientAttestation.x5c)) {
-            ClientAuthenticationError.ClientAttestationIssuerNotTrusted
+        val response = config.isClientAttestationIssuerTrusted(clientAttestation.x5c)
+        require(response is IssuerTrustResult.IsTrusted) {
+            raise(ClientAuthenticationError.ClientAttestationIssuerNotTrusted)
         }
+        val certificateToPassToJades = response.x509Certificate
+
+        try {
+            config.isClientAttestationSignedUsingJAdESBB(clientAttestation.jwt, Clock.System, certificateToPassToJades)
+        } catch (_: Exception) {
+            raise(ClientAuthenticationError.ClientAttestationNotJadesBBConformant)
+        }
+
         val clientStatusValid = catch({
             config.clientStatusValidator.isValid(clientAttestation.claims.clientStatus)
         }) {
@@ -216,7 +220,11 @@ class AttestationBasedClientAuthenticator(
                     } else {
                         IsClientStatusIssuerTrusted.Ignored
                     }
-                isClientStatusIssuerTrusted(x5c)
+                val result = isClientStatusIssuerTrusted(x5c)
+                when (result) {
+                    is IssuerTrustResult.IsTrusted -> true
+                    is IssuerTrustResult.NotTrusted -> false
+                }
             }.getOrElse { false }
         }
 

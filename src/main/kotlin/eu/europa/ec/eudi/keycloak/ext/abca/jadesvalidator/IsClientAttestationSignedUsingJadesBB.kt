@@ -17,9 +17,10 @@ package eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator
 
 import com.nimbusds.jwt.JWT
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
+import java.security.cert.X509Certificate
 import kotlin.time.Clock
 
-fun interface IsClientAttestationSignedUsingJadesBB : suspend (JWT, Clock, IsClientAttestationIssuerTrusted) -> Unit {
+fun interface IsClientAttestationSignedUsingJadesBB : suspend (JWT, Clock, X509Certificate) -> Unit {
 
     companion object {
         val Ignored: IsClientAttestationSignedUsingJadesBB = { _, _, _ -> }

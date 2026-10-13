@@ -412,6 +412,10 @@ class AttestationBasedClientAuthenticatorTest {
             jadesBProfile = false,
         )
 
+        val httpClient = HttpClient(
+            trustValidatorServiceRequestHandler(VerificationContext.WALLET_PROVIDER_ATTESTATION, true),
+        )
+
         val client = client()
         every { clients.getClientByClientId(realm, "eudiw") } returns client
 
@@ -421,6 +425,7 @@ class AttestationBasedClientAuthenticatorTest {
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "The Wallet Instance Attestation is not JAdES-BASELINE-B conformant",
+            httpClient,
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
         }
@@ -1365,12 +1370,13 @@ private fun trustValidatorServiceRequestHandler(
     assertEquals(ContentType.Application.Json, it.body.contentType)
 
     val body = it.body.toByteReadPacket().use { source -> Json.decodeFromSource<JsonObject>(source) }
-    assertIs<JsonArray>(body["chain"])
+    val chain = assertIs<JsonArray>(body["chain"])
     val context = Json.decodeFromJsonElement<VerificationContext>(assertIs<JsonPrimitive>(body["verificationContext"]))
     assertEquals(verificationContext, context)
 
     val response = buildJsonObject {
         put("trusted", trusted)
+        put("trustAnchor", chain.first().jsonPrimitive.content)
     }
     respond(
         Json.encodeToString(response),

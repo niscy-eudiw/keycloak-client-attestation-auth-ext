@@ -21,9 +21,14 @@ import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
 import eu.europa.esig.dss.enumerations.Indication
 import eu.europa.esig.dss.enumerations.ValidationLevel
 import eu.europa.esig.dss.model.InMemoryDocument
+import eu.europa.esig.dss.model.x509.CertificateToken
 import eu.europa.esig.dss.spi.validation.CommonCertificateVerifier
 import eu.europa.esig.dss.spi.validation.executor.CompleteValidationContextExecutor
+import eu.europa.esig.dss.spi.x509.CertificateSource
+import eu.europa.esig.dss.spi.x509.CommonCertificateSource
+import eu.europa.esig.dss.spi.x509.CommonTrustedCertificateSource
 import eu.europa.esig.dss.validation.SignedDocumentValidator
+import java.security.cert.X509Certificate
 import java.util.*
 import kotlin.time.Clock
 import kotlin.time.toJavaInstant
@@ -40,13 +45,15 @@ import kotlin.time.toJavaInstant
  */
 
 fun interface JadesBaseLineProfileVerifier {
-    suspend fun verify(wia: JWT, clock: Clock, trustValidator: IsClientAttestationIssuerTrusted)
+    suspend fun verify(wia: JWT, clock: Clock, x5c: X509Certificate)
 }
 
-fun JadesBaseLineProfileVerifier(): JadesBaseLineProfileVerifier = JadesBaseLineProfileVerifier { wia, clock, trustValidator ->
+fun JadesBaseLineProfileVerifier(): JadesBaseLineProfileVerifier = JadesBaseLineProfileVerifier { wia, clock, x5c ->
 
     val certificateVerifier: CommonCertificateVerifier = CommonCertificateVerifier(true).apply {
-        val trustedCertificateSource = CertificateSourceTrustValidator(trustValidator)
+        val certificateSource: CertificateSource = CommonCertificateSource().apply { addCertificate(CertificateToken(x5c)) }
+        val trustedCertificateSource = CommonTrustedCertificateSource().apply { importAsTrusted(certificateSource) }
+
         setTrustedCertSources(trustedCertificateSource)
     }
 
