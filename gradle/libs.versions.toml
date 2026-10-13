@@ -15,6 +15,7 @@ dokka = "2.2.0"
 maven-publish = "0.37.0"
 uri-kmp = "0.0.21"
 mockk = "1.14.11"
+dss = "6.5"
 
 [libraries]
 # Kotlin
@@ -57,6 +58,11 @@ mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 
 # Nimbus
 nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt" }
+
+# DSS
+dss-bom = { module = "eu.europa.ec.joinup.sd-dss:dss-bom", version.ref = "dss" }
+dss-jades = { module = "eu.europa.ec.joinup.sd-dss:dss-jades" }
+dss-utils-apache-commons = { module = "eu.europa.ec.joinup.sd-dss:dss-utils-apache-commons" }
 
 # Others
 statium = { module = "eu.europa.ec.eudi:eudi-lib-kmp-statium-jvm", version.ref = "statium" }

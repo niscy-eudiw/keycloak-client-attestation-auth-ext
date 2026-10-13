@@ -30,6 +30,7 @@ import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.gen.ECKeyGenerator
 import com.nimbusds.jose.util.Base64
+import com.nimbusds.jose.util.Base64URL
 import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
@@ -72,6 +73,7 @@ import org.keycloak.models.*
 import org.keycloak.provider.ProviderFactory
 import org.keycloak.representations.idm.OAuth2ErrorRepresentation
 import java.net.URI
+import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import kotlin.test.*
 import kotlin.time.Clock
@@ -392,6 +394,33 @@ class AttestationBasedClientAuthenticatorTest {
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
             "Not a valid Wallet Instance Attestation",
+        ) {
+            assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
+        }
+    }
+
+    @Test
+    fun `authentication fails when client attestation is not jades baseline b conformant`() {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+            jadesBProfile = false,
+        )
+
+        val client = client()
+        every { clients.getClientByClientId(realm, "eudiw") } returns client
+
+        testExpectingFailure(
+            clientAttestation.serialize(),
+            null,
+            AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
+            AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
+            "The Wallet Instance Attestation is not JAdES-BASELINE-B conformant",
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
         }
@@ -1141,11 +1170,21 @@ class AttestationBasedClientAuthenticatorTest {
         type: JOSEObjectType? = JOSEObjectType(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_JWT_TYPE),
         x5c: NonEmptyList<X509Certificate>? = null,
         signer: JWSSigner,
+        jadesBProfile: Boolean = true,
     ): SignedJWT = SignedJWT(
         JWSHeader.Builder(algorithm)
             .apply {
                 type?.let { type(it) }
-                x5c?.let { x509CertChain(it.map { certificate -> Base64.encode(certificate.encoded) }) }
+                x5c?.let { chain ->
+                    x509CertChain(chain.map { certificate -> Base64.encode(certificate.encoded) })
+                    if (jadesBProfile) {
+                        val digest = MessageDigest.getInstance("SHA-256").digest(chain.first().encoded)
+                        x509CertSHA256Thumbprint(Base64URL.encode(digest))
+                    }
+                }
+                if (jadesBProfile) {
+                    customParam("iat", (issuedAt ?: clock.now().dropNanos()).epochSeconds)
+                }
             }.build(),
         WalletInstanceAttestationClaimsBuilder()
             .apply {
@@ -1270,6 +1309,7 @@ private fun client(
     clientAttestationMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_MAX_AGE,
     clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
     verifyClientAttestationIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER,
+    verifyClientAttestationSignedWithJadesBB: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE,
     verifyClientStatusIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_STATUS_VERIFY_ISSUER,
 ): ClientModel {
     val client = mockk<ClientModel>()
@@ -1281,6 +1321,7 @@ private fun client(
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE) } returns clientAttestationMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_ISSUER) } returns verifyClientAttestationIssuer.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE) } returns verifyClientAttestationSignedWithJadesBB.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_STATUS_VERIFY_ISSUER) } returns verifyClientStatusIssuer.toString()
     return client
 }
