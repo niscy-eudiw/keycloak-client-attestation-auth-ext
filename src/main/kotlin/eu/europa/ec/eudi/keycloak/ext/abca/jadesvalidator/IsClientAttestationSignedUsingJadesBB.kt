@@ -16,14 +16,16 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator
 
 import com.nimbusds.jwt.JWT
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
+import kotlin.time.Clock
 
-fun interface IsClientAttestationSignedUsingJadesBB : suspend (JWT) -> Unit {
+fun interface IsClientAttestationSignedUsingJadesBB : suspend (JWT, Clock, IsClientAttestationIssuerTrusted) -> Unit {
 
     companion object {
-        val Ignored: IsClientAttestationSignedUsingJadesBB = { _ -> }
+        val Ignored: IsClientAttestationSignedUsingJadesBB = { _, _, _ -> }
     }
 }
 
-fun IsClientAttestationSignedUsingJadesBB(jadesValidator: JadesBaseLineProfileVerifier): IsClientAttestationSignedUsingJadesBB = { wia ->
-    jadesValidator.verify(wia)
+fun IsClientAttestationSignedUsingJadesBB(jadesValidator: JadesBaseLineProfileVerifier): IsClientAttestationSignedUsingJadesBB = { wia, clock, trustValidator ->
+    jadesValidator.verify(wia, clock, trustValidator)
 }

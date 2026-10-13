@@ -63,6 +63,8 @@ nimbus-jose-jwt = { module = "com.nimbusds:nimbus-jose-jwt" }
 dss-bom = { module = "eu.europa.ec.joinup.sd-dss:dss-bom", version.ref = "dss" }
 dss-jades = { module = "eu.europa.ec.joinup.sd-dss:dss-jades" }
 dss-utils-apache-commons = { module = "eu.europa.ec.joinup.sd-dss:dss-utils-apache-commons" }
+dss-validation = { module = "eu.europa.ec.joinup.sd-dss:dss-validation" }
+dss-policy-jaxb = { module = "eu.europa.ec.joinup.sd-dss:dss-policy-jaxb" }
 
 # Others
 statium = { module = "eu.europa.ec.eudi:eudi-lib-kmp-statium-jvm", version.ref = "statium" }

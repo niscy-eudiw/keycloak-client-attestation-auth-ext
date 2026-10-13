@@ -60,6 +60,9 @@ dependencies {
 
     implementation(libs.nimbus.jose.jwt)
     implementation(libs.dss.jades)
+    implementation(libs.dss.validation)
+    implementation(libs.dss.policy.jaxb)
+
     implementation(libs.dss.utils.apache.commons)
     implementation(libs.statium)
     implementation(libs.uri.kmp)

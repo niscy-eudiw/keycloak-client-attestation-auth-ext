@@ -16,14 +16,21 @@
 package eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator
 
 import com.nimbusds.jwt.JWT
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
-import eu.europa.esig.dss.jades.validation.JAdESSignature
-import eu.europa.esig.dss.jades.validation.JWS
+import eu.europa.esig.dss.enumerations.Indication
+import eu.europa.esig.dss.enumerations.ValidationLevel
+import eu.europa.esig.dss.model.InMemoryDocument
 import eu.europa.esig.dss.spi.validation.CommonCertificateVerifier
+import eu.europa.esig.dss.spi.validation.executor.CompleteValidationContextExecutor
+import eu.europa.esig.dss.validation.SignedDocumentValidator
+import java.util.*
+import kotlin.time.Clock
+import kotlin.time.toJavaInstant
 
 /**
  * Verifies a Wallet Instance Attestation (WIA) as a JAdES signature conforming to the
- * JAdES-BASELINE-B profile, as defined by ETSI TS 119 182-1.
+ * JAdES-BASELINE-B profile
  *
  * Only the cryptographic signature integrity and the structural Baseline-B requirements are
  * checked here. Trust validation of the signing certificate chain is delegated to the
@@ -33,24 +40,35 @@ import eu.europa.esig.dss.spi.validation.CommonCertificateVerifier
  */
 
 fun interface JadesBaseLineProfileVerifier {
-    suspend fun verify(wia: JWT)
+    suspend fun verify(wia: JWT, clock: Clock, trustValidator: IsClientAttestationIssuerTrusted)
 }
 
-fun JadesBaseLineProfileVerifier(): JadesBaseLineProfileVerifier = JadesBaseLineProfileVerifier { wia ->
-    val jwt = wia.serialize()
-    val jws = JWS(jwt.split(".").toTypedArray())
-    val signature = JAdESSignature(jws)
+fun JadesBaseLineProfileVerifier(): JadesBaseLineProfileVerifier = JadesBaseLineProfileVerifier { wia, clock, trustValidator ->
 
-    // Cryptographic verification of the signature against the signing certificate from 'x5c'.
-    signature.checkSignatureIntegrity()
-    require(signature.signatureCryptographicVerification.isSignatureIntact) {
-        "WIA signature verification failed"
+    val certificateVerifier: CommonCertificateVerifier = CommonCertificateVerifier(true).apply {
+        val trustedCertificateSource = CertificateSourceTrustValidator(trustValidator)
+        setTrustedCertSources(trustedCertificateSource)
     }
 
-    // Structural conformance to the JAdES-BASELINE-B profile (ETSI TS 119 182-1).
-    signature.initBaselineRequirementsChecker(CommonCertificateVerifier(true))
-    signature.allEvidenceRecords
-    require(signature.hasBProfile()) {
-        "WIA does not conform to the JAdES-BASELINE-B profile"
+    val validator =
+        SignedDocumentValidator.fromDocument(InMemoryDocument(wia.serialize().toByteArray())).apply {
+            setCertificateVerifier(certificateVerifier)
+            setValidationLevel(ValidationLevel.BASIC_SIGNATURES)
+            setValidationContextExecutor(CompleteValidationContextExecutor.INSTANCE)
+            setValidationTime(Date.from(clock.now().toJavaInstant()))
+        }
+
+    val report = validator.validateDocument().simpleReport
+    check(null != report.signatureIdList.singleOrNull()) { "JWT can not contain more than one signature" }
+
+    val signatureId = report.firstSignatureId
+    val indication = report.getIndication(signatureId)
+    if (indication == Indication.TOTAL_PASSED) {
+        return@JadesBaseLineProfileVerifier
+    } else {
+        throw IllegalStateException(
+            "JAdES B-B signature verification failed: indication=$indication, " +
+                "subIndication=${report.getSubIndication(signatureId)}",
+        )
     }
 }

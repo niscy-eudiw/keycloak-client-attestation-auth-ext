@@ -129,7 +129,7 @@ class AttestationBasedClientAuthenticator(
         val config = ClientAuthenticatorConfig(client, authenticatorConfig)
 
         try {
-            config.isClientAttestationSignedUsingJAdESBB(clientAttestation.jwt)
+            config.isClientAttestationSignedUsingJAdESBB(clientAttestation.jwt, Clock.System, config.isClientAttestationIssuerTrusted)
         } catch (e: IllegalArgumentException) {
             raise(ClientAuthenticationError.ClientAttestationNotJadesBBConformant)
         }
