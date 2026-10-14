@@ -22,17 +22,15 @@ import arrow.core.raise.effect
 import arrow.core.raise.getOrElse
 import arrow.core.toNonEmptyListOrNull
 import com.eygraber.uri.Url
+import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ClientAttestationSignatureVerificationOptions
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ECDSAVerifier
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.IsClientAttestationSigned
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.JadesBaseLineBProfileVerifier
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.IsClientAttestationSignatureValid
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.JadesBaseLineBVerifier
 import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.SignatureVerificationResult
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.isClientAttestationSignedUsingJadesBB
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientStatusIssuerTrusted
@@ -73,7 +71,6 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
-import com.nimbusds.jose.crypto.ECDSAVerifier as NimbusECDSAVerifier
 
 class AttestationBasedClientAuthenticator(
     private val httpClient: HttpClient,
@@ -151,7 +148,7 @@ class AttestationBasedClientAuthenticator(
             }
         }
 
-        ensure(config.isClientAttestationSigned(clientAttestation) is SignatureVerificationResult.Passed) {
+        ensure(config.isClientAttestationSignatureValid(clientAttestation) is SignatureVerificationResult.Passed) {
             ClientAuthenticationError.InvalidSignature
         }
 
@@ -195,12 +192,12 @@ class AttestationBasedClientAuthenticator(
                 IsClientAttestationIssuerTrusted.Ignored
             }
 
-    private val ClientAuthenticatorConfig.isClientAttestationSigned: IsClientAttestationSigned
-        get() = when (clientAttestationSignatureVerificationOptions) {
-            ClientAttestationSignatureVerificationOptions.BASIC -> IsClientAttestationSigned(ECDSAVerifier())
+    private val ClientAuthenticatorConfig.isClientAttestationSignatureValid: IsClientAttestationSignatureValid
+        get() = when (signatureVerification) {
+            ClientAuthenticatorConfig.SignatureVerification.JWS -> IsClientAttestationSignatureValid.jws()
 
-            ClientAttestationSignatureVerificationOptions.JADES_BB ->
-                isClientAttestationSignedUsingJadesBB(clock, JadesBaseLineBProfileVerifier())
+            ClientAuthenticatorConfig.SignatureVerification.JADES_BB ->
+                IsClientAttestationSignatureValid.jadesBB(clock, JadesBaseLineBVerifier())
         }
 
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
@@ -212,7 +209,7 @@ class AttestationBasedClientAuthenticator(
 
                 val signingKey = x5c.first().publicKey
                 ensure(signingKey is ECPublicKey)
-                ensure(statusListToken.verify(NimbusECDSAVerifier(signingKey)))
+                ensure(statusListToken.verify(ECDSAVerifier(signingKey)))
 
                 val isClientStatusIssuerTrusted =
                     if (verifyClientStatusIssuer) {
@@ -241,7 +238,7 @@ class AttestationBasedClientAuthenticator(
         }
 
         val signatureValid = catch({
-            clientAttestationPoP.jwt.verify(NimbusECDSAVerifier(context.clientAttestation.confirmationKey))
+            clientAttestationPoP.jwt.verify(ECDSAVerifier(context.clientAttestation.confirmationKey))
         }) { false }
         ensure(signatureValid) {
             ClientAuthenticationError.InvalidClientAttestationPoPSignature
@@ -395,8 +392,8 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
             ?.toBoolean()
             ?: DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER
 
-    val clientAttestationSignatureVerificationOptions: ClientAttestationSignatureVerificationOptions
-        get() = ClientAttestationSignatureVerificationOptions.fromValue(
+    val signatureVerification: SignatureVerification
+        get() = SignatureVerification.fromValue(
             get(CLIENT_ATTESTATION_SIGNATURE_VERIFICATION),
         )
 
@@ -426,6 +423,20 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
 
         const val CLIENT_STATUS_VERIFY_ISSUER = "clientStatus.verifyIssuer"
         const val DEFAULT_CLIENT_STATUS_VERIFY_ISSUER = true
+    }
+
+    /**
+     * Selects how the signature of a Client Attestation (Wallet Instance Attestation) is verified.
+     */
+    enum class SignatureVerification(val value: String) {
+        JWS("JWS signature verification"),
+        JADES_BB("JAdES B-B profile verification"),
+        ;
+
+        companion object {
+            val DEFAULT: SignatureVerification = JADES_BB
+            fun fromValue(value: String?): SignatureVerification = entries.firstOrNull { it.value == value } ?: DEFAULT
+        }
     }
 }
 
@@ -490,11 +501,11 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .property()
         .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION)
         .type(ProviderConfigProperty.LIST_TYPE)
-        .defaultValue(ClientAttestationSignatureVerificationOptions.DEFAULT.value)
+        .defaultValue(ClientAuthenticatorConfig.SignatureVerification.DEFAULT.value)
         .label("Client Attestation Signature Verification")
         .helpText("How the signature of a Client Attestation is verified.")
         .options(
-            ClientAttestationSignatureVerificationOptions.entries.map { it.value },
+            ClientAuthenticatorConfig.SignatureVerification.entries.map { it.value },
         )
         .add()
         .property()

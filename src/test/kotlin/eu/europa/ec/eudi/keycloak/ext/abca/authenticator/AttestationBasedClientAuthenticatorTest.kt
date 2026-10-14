@@ -42,7 +42,6 @@ import eu.europa.ec.eudi.keycloak.ext.abca.challenge.toChallenge
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.Audience
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.AudienceSerializer
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.InstantEpochSecondsSerializer
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ClientAttestationSignatureVerificationOptions
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.Status
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.StatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.VerificationContext
@@ -211,7 +210,7 @@ class AttestationBasedClientAuthenticatorTest {
             signer = ECDSASigner(walletInstanceKey),
         )
 
-        val client = client(clientAttestationSignatureVerificationOptions = ClientAttestationSignatureVerificationOptions.BASIC)
+        val client = client(signatureVerification = ClientAuthenticatorConfig.SignatureVerification.JWS)
 
         testExpectingSuccess(
             clientAttestation.serialize(),
@@ -1345,7 +1344,7 @@ private fun client(
     clientAttestationMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_MAX_AGE,
     clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
     verifyClientAttestationIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER,
-    clientAttestationSignatureVerificationOptions: ClientAttestationSignatureVerificationOptions = ClientAttestationSignatureVerificationOptions.DEFAULT,
+    signatureVerification: ClientAuthenticatorConfig.SignatureVerification = ClientAuthenticatorConfig.SignatureVerification.DEFAULT,
     verifyClientStatusIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_STATUS_VERIFY_ISSUER,
 ): ClientModel {
     val client = mockk<ClientModel>()
@@ -1357,7 +1356,7 @@ private fun client(
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE) } returns clientAttestationMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_ISSUER) } returns verifyClientAttestationIssuer.toString()
-    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION) } returns clientAttestationSignatureVerificationOptions.value
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION) } returns signatureVerification.value
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_STATUS_VERIFY_ISSUER) } returns verifyClientStatusIssuer.toString()
     return client
 }

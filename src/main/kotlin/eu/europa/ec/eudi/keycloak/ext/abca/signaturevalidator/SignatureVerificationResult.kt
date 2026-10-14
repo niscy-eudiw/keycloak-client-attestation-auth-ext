@@ -18,6 +18,5 @@ package eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator
 sealed interface SignatureVerificationResult {
     data object Passed : SignatureVerificationResult
 
-    @JvmInline
-    value class Failed(val message: String) : SignatureVerificationResult
+    class Failed(val message: String, val cause: Throwable? = null) : SignatureVerificationResult
 }

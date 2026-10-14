@@ -42,11 +42,11 @@ import kotlin.time.toJavaInstant
  * requirements checker.
  */
 
-fun interface JadesBaseLineBProfileVerifier {
+fun interface JadesBaseLineBVerifier {
     suspend fun verify(clientAttestation: ClientAttestation, clock: Clock): SignatureVerificationResult
 }
 
-fun JadesBaseLineBProfileVerifier(): JadesBaseLineBProfileVerifier = JadesBaseLineBProfileVerifier { clientAttestation, clock ->
+fun JadesBaseLineBVerifier(): JadesBaseLineBVerifier = JadesBaseLineBVerifier { clientAttestation, clock ->
     val wia = clientAttestation.jwt
     val trustAnchor = clientAttestation.x5c.first()
 
