@@ -27,6 +27,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ClientAttestationSignatureVerificationOptions
 import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ECDSAVerifier
 import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.IsClientAttestationSigned
 import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.JadesBaseLineBProfileVerifier
@@ -195,12 +196,12 @@ class AttestationBasedClientAuthenticator(
             }
 
     private val ClientAuthenticatorConfig.isClientAttestationSigned: IsClientAttestationSigned
-        get() =
-            if (verifyClientAttestationSignedWithJadesBB) {
+        get() = when (clientAttestationSignatureVerificationOptions) {
+            ClientAttestationSignatureVerificationOptions.BASIC -> IsClientAttestationSigned(ECDSAVerifier())
+
+            ClientAttestationSignatureVerificationOptions.JADES_BB ->
                 isClientAttestationSignedUsingJadesBB(clock, JadesBaseLineBProfileVerifier())
-            } else {
-                IsClientAttestationSigned(ECDSAVerifier())
-            }
+        }
 
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
         get() = ClientStatusValidator(httpClient, clock, clockSkew) { statusListToken ->
@@ -394,10 +395,10 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
             ?.toBoolean()
             ?: DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER
 
-    val verifyClientAttestationSignedWithJadesBB: Boolean
-        get() = get(CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE)
-            ?.toBoolean()
-            ?: DEFAULT_CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE
+    val clientAttestationSignatureVerificationOptions: ClientAttestationSignatureVerificationOptions
+        get() = ClientAttestationSignatureVerificationOptions.fromValue(
+            get(CLIENT_ATTESTATION_SIGNATURE_VERIFICATION),
+        )
 
     val verifyClientStatusIssuer: Boolean
         get() = get(CLIENT_STATUS_VERIFY_ISSUER)
@@ -421,8 +422,7 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
         const val CLIENT_ATTESTATION_VERIFY_ISSUER = "clientAttestation.verifyIssuer"
         const val DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER = true
 
-        const val CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE = "clientAttestation.verifyJadesBB"
-        const val DEFAULT_CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE = true
+        const val CLIENT_ATTESTATION_SIGNATURE_VERIFICATION = "clientAttestation.signatureVerification"
 
         const val CLIENT_STATUS_VERIFY_ISSUER = "clientStatus.verifyIssuer"
         const val DEFAULT_CLIENT_STATUS_VERIFY_ISSUER = true
@@ -488,11 +488,14 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .helpText("URL of the Trust Validator Service. When blank, no trust verification is performed.")
         .add()
         .property()
-        .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE)
+        .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION)
         .type(ProviderConfigProperty.LIST_TYPE)
-        .defaultValue(true)
-        .label("")
-        .helpText("")
+        .defaultValue(ClientAttestationSignatureVerificationOptions.DEFAULT.value)
+        .label("Client Attestation Signature Verification")
+        .helpText("How the signature of a Client Attestation is verified.")
+        .options(
+            ClientAttestationSignatureVerificationOptions.entries.map { it.value },
+        )
         .add()
         .property()
         .name(ClientAuthenticatorConfig.CLOCK_SKEW)

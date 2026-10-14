@@ -23,7 +23,7 @@ fun interface ECDSAVerifier {
 }
 
 fun ECDSAVerifier(): ECDSAVerifier = ECDSAVerifier { clientAttestation ->
-    val signingKey = clientAttestation.x5c.first()
+    val signingKey = clientAttestation.x5c.first().publicKey
     require(signingKey is ECPublicKey) {
         "The first certificate in the 'x5c' claim in the JWSHeader must contain an EC public key"
     }

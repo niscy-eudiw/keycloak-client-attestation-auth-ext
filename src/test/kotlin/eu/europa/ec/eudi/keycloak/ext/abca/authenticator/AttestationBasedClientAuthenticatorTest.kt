@@ -42,6 +42,7 @@ import eu.europa.ec.eudi.keycloak.ext.abca.challenge.toChallenge
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.Audience
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.AudienceSerializer
 import eu.europa.ec.eudi.keycloak.ext.abca.serialization.InstantEpochSecondsSerializer
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ClientAttestationSignatureVerificationOptions
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.Status
 import eu.europa.ec.eudi.keycloak.ext.abca.tokenstatuslist.StatusList
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.VerificationContext
@@ -189,6 +190,36 @@ class AttestationBasedClientAuthenticatorTest {
         verify { event.client(client) }
         verify { session.setAttribute(TS3.CLIENT_STATUS_CLAIM, clientStatus) }
         verify { context.success() }
+    }
+
+    @Test
+    fun `verify successful authentication with basic signature verification`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+            jadesBProfile = false,
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(clientAttestationSignatureVerificationOptions = ClientAttestationSignatureVerificationOptions.BASIC)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
     }
 
     @Test
@@ -1314,7 +1345,7 @@ private fun client(
     clientAttestationMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_MAX_AGE,
     clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
     verifyClientAttestationIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER,
-    verifyClientAttestationSignedWithJadesBB: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE,
+    clientAttestationSignatureVerificationOptions: ClientAttestationSignatureVerificationOptions = ClientAttestationSignatureVerificationOptions.DEFAULT,
     verifyClientStatusIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_STATUS_VERIFY_ISSUER,
 ): ClientModel {
     val client = mockk<ClientModel>()
@@ -1326,7 +1357,7 @@ private fun client(
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE) } returns clientAttestationMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_ISSUER) } returns verifyClientAttestationIssuer.toString()
-    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE) } returns verifyClientAttestationSignedWithJadesBB.toString()
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION) } returns clientAttestationSignatureVerificationOptions.value
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_STATUS_VERIFY_ISSUER) } returns verifyClientStatusIssuer.toString()
     return client
 }
