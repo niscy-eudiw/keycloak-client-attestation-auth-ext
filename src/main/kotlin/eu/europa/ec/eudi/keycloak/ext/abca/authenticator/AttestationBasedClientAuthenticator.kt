@@ -26,10 +26,10 @@ import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
+import eu.europa.ec.eudi.keycloak.ext.abca.authenticator.ClientAuthenticatorConfig.Companion.DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
 import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.IsClientAttestationSignatureValid
-import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.JadesBaseLineBVerifier
 import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.SignatureVerificationResult
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
@@ -193,11 +193,11 @@ class AttestationBasedClientAuthenticator(
             }
 
     private val ClientAuthenticatorConfig.isClientAttestationSignatureValid: IsClientAttestationSignatureValid
-        get() = when (signatureVerification) {
-            ClientAuthenticatorConfig.SignatureVerification.JWS -> IsClientAttestationSignatureValid.jws()
+        get() = when (signatureVerificationMethod) {
+            ClientAuthenticatorConfig.SignatureVerificationMethod.JWS -> IsClientAttestationSignatureValid.jws()
 
-            ClientAuthenticatorConfig.SignatureVerification.JADES_BB ->
-                IsClientAttestationSignatureValid.jadesBB(clock, JadesBaseLineBVerifier())
+            ClientAuthenticatorConfig.SignatureVerificationMethod.JADES_BB ->
+                IsClientAttestationSignatureValid.jadesBB(clock)
         }
 
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
@@ -218,10 +218,7 @@ class AttestationBasedClientAuthenticator(
                         IsClientStatusIssuerTrusted.Ignored
                     }
                 val result = isClientStatusIssuerTrusted(x5c)
-                when (result) {
-                    is TrustResult.IsTrusted -> true
-                    is TrustResult.NotTrusted -> false
-                }
+                result is TrustResult.IsTrusted
             }.getOrElse { false }
         }
 
@@ -299,7 +296,7 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Stale Client Attestation PoP"
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
             ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
-            ClientAuthenticationError.InvalidSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Wallet Instance Attestation signature is invalid"
+            ClientAuthenticationError.InvalidSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Wallet Instance Attestation signature is not valid"
         }
         val headers = when (clientAuthenticationError) {
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> mapOf(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to clientAuthenticationError.useAttestationChallenge.value)
@@ -392,8 +389,8 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
             ?.toBoolean()
             ?: DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER
 
-    val signatureVerification: SignatureVerification
-        get() = SignatureVerification.fromValue(
+    val signatureVerificationMethod: SignatureVerificationMethod
+        get() = SignatureVerificationMethod.fromValue(
             get(CLIENT_ATTESTATION_SIGNATURE_VERIFICATION),
         )
 
@@ -419,8 +416,8 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
         const val CLIENT_ATTESTATION_VERIFY_ISSUER = "clientAttestation.verifyIssuer"
         const val DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER = true
 
-        const val CLIENT_ATTESTATION_SIGNATURE_VERIFICATION = "clientAttestation.signatureVerification"
-
+        const val CLIENT_ATTESTATION_SIGNATURE_VERIFICATION = "clientAttestation.signatureVerificationMethod"
+        val DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD = SignatureVerificationMethod.JADES_BB
         const val CLIENT_STATUS_VERIFY_ISSUER = "clientStatus.verifyIssuer"
         const val DEFAULT_CLIENT_STATUS_VERIFY_ISSUER = true
     }
@@ -428,14 +425,13 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
     /**
      * Selects how the signature of a Client Attestation (Wallet Instance Attestation) is verified.
      */
-    enum class SignatureVerification(val value: String) {
+    enum class SignatureVerificationMethod(val value: String) {
         JWS("JWS signature verification"),
         JADES_BB("JAdES B-B signature verification"),
         ;
 
         companion object {
-            val DEFAULT: SignatureVerification = JADES_BB
-            fun fromValue(value: String?): SignatureVerification = entries.firstOrNull { it.value == value } ?: DEFAULT
+            fun fromValue(value: String?): SignatureVerificationMethod = entries.firstOrNull { it.value == value } ?: DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD
         }
     }
 }
@@ -501,11 +497,11 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .property()
         .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION)
         .type(ProviderConfigProperty.LIST_TYPE)
-        .defaultValue(ClientAuthenticatorConfig.SignatureVerification.DEFAULT.value)
+        .defaultValue(DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD.value)
         .label("Client Attestation Signature Verification")
         .helpText("How the signature of a Client Attestation is verified.")
         .options(
-            ClientAuthenticatorConfig.SignatureVerification.entries.map { it.value },
+            ClientAuthenticatorConfig.SignatureVerificationMethod.entries.map { it.value },
         )
         .add()
         .property()

@@ -35,6 +35,7 @@ import com.nimbusds.jose.util.X509CertUtils
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import eu.europa.ec.eudi.keycloak.ext.abca.*
+import eu.europa.ec.eudi.keycloak.ext.abca.authenticator.ClientAuthenticatorConfig.Companion.DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.UseAttestationChallenge
@@ -192,7 +193,7 @@ class AttestationBasedClientAuthenticatorTest {
     }
 
     @Test
-    fun `verify successful authentication with basic signature verification`() = runTest {
+    fun `verify successful authentication with signature verification`() = runTest {
         val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
         val clientStatus = clientStatus()
         val clientAttestation = clientAttestation(
@@ -210,7 +211,7 @@ class AttestationBasedClientAuthenticatorTest {
             signer = ECDSASigner(walletInstanceKey),
         )
 
-        val client = client(signatureVerification = ClientAuthenticatorConfig.SignatureVerification.JWS)
+        val client = client(signatureVerificationMethod = ClientAuthenticatorConfig.SignatureVerificationMethod.JWS)
 
         testExpectingSuccess(
             clientAttestation.serialize(),
@@ -454,7 +455,7 @@ class AttestationBasedClientAuthenticatorTest {
             null,
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "The Wallet Instance Attestation signature is invalid",
+            "The Wallet Instance Attestation signature is not valid",
             httpClient,
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
@@ -1344,7 +1345,7 @@ private fun client(
     clientAttestationMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_MAX_AGE,
     clientAttestationPoPMaxAge: Duration = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_POP_MAX_AGE,
     verifyClientAttestationIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_ATTESTATION_VERIFY_ISSUER,
-    signatureVerification: ClientAuthenticatorConfig.SignatureVerification = ClientAuthenticatorConfig.SignatureVerification.DEFAULT,
+    signatureVerificationMethod: ClientAuthenticatorConfig.SignatureVerificationMethod = DEFAULT_ATTESTATION_SIGNATURE_VERIFICATION_METHOD,
     verifyClientStatusIssuer: Boolean = ClientAuthenticatorConfig.DEFAULT_CLIENT_STATUS_VERIFY_ISSUER,
 ): ClientModel {
     val client = mockk<ClientModel>()
@@ -1356,7 +1357,7 @@ private fun client(
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_MAX_AGE) } returns clientAttestationMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_POP_MAX_AGE) } returns clientAttestationPoPMaxAge.inWholeSeconds.toString()
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_ISSUER) } returns verifyClientAttestationIssuer.toString()
-    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION) } returns signatureVerification.value
+    every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_ATTESTATION_SIGNATURE_VERIFICATION) } returns signatureVerificationMethod.value
     every { client.getAttribute(ClientAuthenticatorConfig.CLIENT_STATUS_VERIFY_ISSUER) } returns verifyClientStatusIssuer.toString()
     return client
 }

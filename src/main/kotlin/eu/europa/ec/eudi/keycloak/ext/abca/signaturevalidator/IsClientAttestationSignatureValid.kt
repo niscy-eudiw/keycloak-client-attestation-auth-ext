@@ -18,15 +18,56 @@ package eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator
 import arrow.core.raise.result
 import com.nimbusds.jose.crypto.ECDSAVerifier
 import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestation
+import eu.europa.esig.dss.enumerations.Indication
+import eu.europa.esig.dss.enumerations.ValidationLevel
+import eu.europa.esig.dss.model.InMemoryDocument
+import eu.europa.esig.dss.model.x509.CertificateToken
+import eu.europa.esig.dss.spi.validation.CommonCertificateVerifier
+import eu.europa.esig.dss.spi.validation.executor.CompleteValidationContextExecutor
+import eu.europa.esig.dss.spi.x509.CertificateSource
+import eu.europa.esig.dss.spi.x509.CommonCertificateSource
+import eu.europa.esig.dss.spi.x509.CommonTrustedCertificateSource
+import eu.europa.esig.dss.validation.SignedDocumentValidator
+import java.util.Date
 import kotlin.time.Clock
+import kotlin.time.toJavaInstant
 
 fun interface IsClientAttestationSignatureValid : suspend (ClientAttestation) -> SignatureVerificationResult {
 
     companion object {
         val Ignored: IsClientAttestationSignatureValid = { _ -> SignatureVerificationResult.Passed }
 
-        fun jadesBB(clock: Clock, jadesValidator: JadesBaseLineBVerifier): IsClientAttestationSignatureValid = { clientAttestation ->
-            jadesValidator.verify(clientAttestation, clock)
+        fun jadesBB(clock: Clock): IsClientAttestationSignatureValid = { clientAttestation ->
+            val trustAnchor = clientAttestation.x5c.first()
+
+            val certificateVerifier: CommonCertificateVerifier = CommonCertificateVerifier(true).apply {
+                val certificateSource: CertificateSource = CommonCertificateSource().apply { addCertificate(CertificateToken(trustAnchor)) }
+                val trustedCertificateSource = CommonTrustedCertificateSource().apply { importAsTrusted(certificateSource) }
+
+                setTrustedCertSources(trustedCertificateSource)
+            }
+
+            val validator =
+                SignedDocumentValidator.fromDocument(InMemoryDocument(clientAttestation.jwt.serialize().toByteArray())).apply {
+                    setCertificateVerifier(certificateVerifier)
+                    setValidationLevel(ValidationLevel.BASIC_SIGNATURES)
+                    setValidationContextExecutor(CompleteValidationContextExecutor.INSTANCE)
+                    setValidationTime(Date.from(clock.now().toJavaInstant()))
+                }
+
+            val report = validator.validateDocument().simpleReport
+            check(null != report.signatureIdList.singleOrNull()) { "JWT can not contain more than one signature" }
+
+            val signatureId = report.firstSignatureId
+            val indication = report.getIndication(signatureId)
+            if (indication == Indication.TOTAL_PASSED) {
+                SignatureVerificationResult.Passed
+            } else {
+                SignatureVerificationResult.Failed(
+                    "JAdES B-B signature verification failed: indication=$indication, " +
+                        "subIndication=${report.getSubIndication(signatureId)}",
+                )
+            }
         }
 
         fun jws(): IsClientAttestationSignatureValid = { clientAttestation ->
@@ -35,10 +76,10 @@ fun interface IsClientAttestationSignatureValid : suspend (ClientAttestation) ->
                 if (clientAttestation.jwt.verify(ECDSAVerifier(signingKey))) {
                     SignatureVerificationResult.Passed
                 } else {
-                    SignatureVerificationResult.Failed("Client Attestation failed signature verification")
+                    SignatureVerificationResult.Failed("Signature verification")
                 }
             }.getOrElse {
-                SignatureVerificationResult.Failed("Client Attestation failed signature verification", it)
+                SignatureVerificationResult.Failed("Signature verification", it)
             }
         }
     }

@@ -53,7 +53,7 @@ fun TrustValidator(
     val trustResult = httpClient.isTrusted(service, chain, context)
 
     if (trustResult.trusted) {
-        TrustResult.IsTrusted(trustResult.trustAnchor)
+        TrustResult.IsTrusted(trustResult.trustAnchor!!)
     } else {
         TrustResult.NotTrusted
     }
@@ -80,5 +80,11 @@ private data class TrustRequest(
 @JsonIgnoreUnknownKeys
 internal data class TrustResponse(
     @Required @SerialName("trusted") val trusted: Boolean,
-    @Required @SerialName("trustAnchor") val trustAnchor: Base64X509Certificate,
-)
+    @SerialName("trustAnchor") val trustAnchor: Base64X509Certificate? = null,
+) {
+    init {
+        if (trusted) {
+            requireNotNull(trustAnchor)
+        }
+    }
+}
