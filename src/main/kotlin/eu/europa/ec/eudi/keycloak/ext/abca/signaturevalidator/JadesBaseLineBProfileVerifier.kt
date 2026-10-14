@@ -13,11 +13,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator
+package eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator
 
-import com.nimbusds.jwt.JWT
-import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
+import eu.europa.ec.eudi.keycloak.ext.abca.walletinstanceattestation.ClientAttestation
 import eu.europa.esig.dss.enumerations.Indication
 import eu.europa.esig.dss.enumerations.ValidationLevel
 import eu.europa.esig.dss.model.InMemoryDocument
@@ -28,7 +27,6 @@ import eu.europa.esig.dss.spi.x509.CertificateSource
 import eu.europa.esig.dss.spi.x509.CommonCertificateSource
 import eu.europa.esig.dss.spi.x509.CommonTrustedCertificateSource
 import eu.europa.esig.dss.validation.SignedDocumentValidator
-import java.security.cert.X509Certificate
 import java.util.*
 import kotlin.time.Clock
 import kotlin.time.toJavaInstant
@@ -44,14 +42,16 @@ import kotlin.time.toJavaInstant
  * requirements checker.
  */
 
-fun interface JadesBaseLineProfileVerifier {
-    suspend fun verify(wia: JWT, clock: Clock, x5c: X509Certificate)
+fun interface JadesBaseLineBProfileVerifier {
+    suspend fun verify(clientAttestation: ClientAttestation, clock: Clock): SignatureVerificationResult
 }
 
-fun JadesBaseLineProfileVerifier(): JadesBaseLineProfileVerifier = JadesBaseLineProfileVerifier { wia, clock, x5c ->
+fun JadesBaseLineBProfileVerifier(): JadesBaseLineBProfileVerifier = JadesBaseLineBProfileVerifier { clientAttestation, clock ->
+    val wia = clientAttestation.jwt
+    val trustAnchor = clientAttestation.x5c.first()
 
     val certificateVerifier: CommonCertificateVerifier = CommonCertificateVerifier(true).apply {
-        val certificateSource: CertificateSource = CommonCertificateSource().apply { addCertificate(CertificateToken(x5c)) }
+        val certificateSource: CertificateSource = CommonCertificateSource().apply { addCertificate(CertificateToken(trustAnchor)) }
         val trustedCertificateSource = CommonTrustedCertificateSource().apply { importAsTrusted(certificateSource) }
 
         setTrustedCertSources(trustedCertificateSource)
@@ -71,9 +71,9 @@ fun JadesBaseLineProfileVerifier(): JadesBaseLineProfileVerifier = JadesBaseLine
     val signatureId = report.firstSignatureId
     val indication = report.getIndication(signatureId)
     if (indication == Indication.TOTAL_PASSED) {
-        return@JadesBaseLineProfileVerifier
+        SignatureVerificationResult.Passed
     } else {
-        throw IllegalStateException(
+        SignatureVerificationResult.Failed(
             "JAdES B-B signature verification failed: indication=$indication, " +
                 "subIndication=${report.getSubIndication(signatureId)}",
         )

@@ -18,11 +18,11 @@ package eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator
 import arrow.core.NonEmptyList
 import java.security.cert.X509Certificate
 
-fun interface IsClientAttestationIssuerTrusted : suspend (NonEmptyList<X509Certificate>) -> IssuerTrustResult {
+fun interface IsClientAttestationIssuerTrusted : suspend (NonEmptyList<X509Certificate>) -> TrustResult {
 
     companion object {
         val Ignored = IsClientAttestationIssuerTrusted { cert ->
-            IssuerTrustResult.IsTrusted(cert.first())
+            TrustResult.IsTrusted(cert.first())
         }
     }
 }

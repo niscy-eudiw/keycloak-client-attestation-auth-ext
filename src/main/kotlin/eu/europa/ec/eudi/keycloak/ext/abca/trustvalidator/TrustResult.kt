@@ -13,20 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator
+package eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator
 
-import com.nimbusds.jwt.JWT
-import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import java.security.cert.X509Certificate
-import kotlin.time.Clock
 
-fun interface IsClientAttestationSignedUsingJadesBB : suspend (JWT, Clock, X509Certificate) -> Unit {
-
-    companion object {
-        val Ignored: IsClientAttestationSignedUsingJadesBB = { _, _, _ -> }
-    }
-}
-
-fun IsClientAttestationSignedUsingJadesBB(jadesValidator: JadesBaseLineProfileVerifier): IsClientAttestationSignedUsingJadesBB = { wia, clock, trustValidator ->
-    jadesValidator.verify(wia, clock, trustValidator)
+sealed interface TrustResult {
+    data class IsTrusted(val trustAnchor: X509Certificate) : TrustResult
+    data object NotTrusted : TrustResult
 }

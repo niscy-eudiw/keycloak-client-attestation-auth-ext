@@ -28,19 +28,13 @@ import kotlinx.serialization.Required
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonIgnoreUnknownKeys
-import java.security.cert.X509Certificate
 
 fun interface TrustValidator {
-    suspend fun isTrusted(chain: NonEmptyList<Base64X509Certificate>, context: VerificationContext): IssuerTrustResult
+    suspend fun isTrusted(chain: NonEmptyList<Base64X509Certificate>, context: VerificationContext): TrustResult
 
     companion object {
-        val Ignored = TrustValidator { chain: NonEmptyList<Base64X509Certificate>, _ -> IssuerTrustResult.IsTrusted(chain.first()) }
+        val Ignored = TrustValidator { chain: NonEmptyList<Base64X509Certificate>, _ -> TrustResult.IsTrusted(chain.first()) }
     }
-}
-
-sealed interface IssuerTrustResult {
-    data class IsTrusted(val x509Certificate: X509Certificate) : IssuerTrustResult
-    data object NotTrusted : IssuerTrustResult
 }
 
 @Serializable
@@ -59,9 +53,9 @@ fun TrustValidator(
     val trustResult = httpClient.isTrusted(service, chain, context)
 
     if (trustResult.trusted) {
-        IssuerTrustResult.IsTrusted(trustResult.trustAnchor)
+        TrustResult.IsTrusted(trustResult.trustAnchor)
     } else {
-        IssuerTrustResult.NotTrusted
+        TrustResult.NotTrusted
     }
 }
 

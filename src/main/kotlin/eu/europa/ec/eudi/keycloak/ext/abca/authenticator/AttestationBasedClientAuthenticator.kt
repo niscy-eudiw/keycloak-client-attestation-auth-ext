@@ -22,18 +22,20 @@ import arrow.core.raise.effect
 import arrow.core.raise.getOrElse
 import arrow.core.toNonEmptyListOrNull
 import com.eygraber.uri.Url
-import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.util.X509CertUtils
 import eu.europa.ec.eudi.keycloak.ext.abca.AttestationBasedClientAuthentication
 import eu.europa.ec.eudi.keycloak.ext.abca.TS3
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.Challenge
 import eu.europa.ec.eudi.keycloak.ext.abca.challenge.ChallengeHandler
-import eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator.IsClientAttestationSignedUsingJadesBB
-import eu.europa.ec.eudi.keycloak.ext.abca.jadesvalidator.JadesBaseLineProfileVerifier
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.ECDSAVerifier
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.IsClientAttestationSigned
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.JadesBaseLineBProfileVerifier
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.SignatureVerificationResult
+import eu.europa.ec.eudi.keycloak.ext.abca.signaturevalidator.isClientAttestationSignedUsingJadesBB
 import eu.europa.ec.eudi.keycloak.ext.abca.toNonBlankString
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientAttestationIssuerTrusted
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IsClientStatusIssuerTrusted
-import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.IssuerTrustResult
+import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustResult
 import eu.europa.ec.eudi.keycloak.ext.abca.trustvalidator.TrustValidator
 import eu.europa.ec.eudi.keycloak.ext.abca.util.clientStatus
 import eu.europa.ec.eudi.keycloak.ext.abca.util.context.ensure
@@ -70,6 +72,7 @@ import kotlin.time.Clock
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
+import com.nimbusds.jose.crypto.ECDSAVerifier as NimbusECDSAVerifier
 
 class AttestationBasedClientAuthenticator(
     private val httpClient: HttpClient,
@@ -147,16 +150,12 @@ class AttestationBasedClientAuthenticator(
             }
         }
 
-        val response = config.isClientAttestationIssuerTrusted(clientAttestation.x5c)
-        require(response is IssuerTrustResult.IsTrusted) {
-            raise(ClientAuthenticationError.ClientAttestationIssuerNotTrusted)
+        ensure(config.isClientAttestationSigned(clientAttestation) is SignatureVerificationResult.Passed) {
+            ClientAuthenticationError.InvalidSignature
         }
-        val certificateToPassToJades = response.x509Certificate
 
-        try {
-            config.isClientAttestationSignedUsingJAdESBB(clientAttestation.jwt, Clock.System, certificateToPassToJades)
-        } catch (_: Exception) {
-            raise(ClientAuthenticationError.ClientAttestationNotJadesBBConformant)
+        ensure(config.isClientAttestationIssuerTrusted(clientAttestation.x5c) is TrustResult.IsTrusted) {
+            ClientAuthenticationError.ClientAttestationIssuerNotTrusted
         }
 
         val clientStatusValid = catch({
@@ -195,12 +194,12 @@ class AttestationBasedClientAuthenticator(
                 IsClientAttestationIssuerTrusted.Ignored
             }
 
-    private val ClientAuthenticatorConfig.isClientAttestationSignedUsingJAdESBB: IsClientAttestationSignedUsingJadesBB
+    private val ClientAuthenticatorConfig.isClientAttestationSigned: IsClientAttestationSigned
         get() =
             if (verifyClientAttestationSignedWithJadesBB) {
-                IsClientAttestationSignedUsingJadesBB(JadesBaseLineProfileVerifier())
+                isClientAttestationSignedUsingJadesBB(clock, JadesBaseLineBProfileVerifier())
             } else {
-                IsClientAttestationSignedUsingJadesBB.Ignored
+                IsClientAttestationSigned(ECDSAVerifier())
             }
 
     private val ClientAuthenticatorConfig.clientStatusValidator: ClientStatusValidator
@@ -212,7 +211,7 @@ class AttestationBasedClientAuthenticator(
 
                 val signingKey = x5c.first().publicKey
                 ensure(signingKey is ECPublicKey)
-                ensure(statusListToken.verify(ECDSAVerifier(signingKey)))
+                ensure(statusListToken.verify(NimbusECDSAVerifier(signingKey)))
 
                 val isClientStatusIssuerTrusted =
                     if (verifyClientStatusIssuer) {
@@ -222,8 +221,8 @@ class AttestationBasedClientAuthenticator(
                     }
                 val result = isClientStatusIssuerTrusted(x5c)
                 when (result) {
-                    is IssuerTrustResult.IsTrusted -> true
-                    is IssuerTrustResult.NotTrusted -> false
+                    is TrustResult.IsTrusted -> true
+                    is TrustResult.NotTrusted -> false
                 }
             }.getOrElse { false }
         }
@@ -241,7 +240,7 @@ class AttestationBasedClientAuthenticator(
         }
 
         val signatureValid = catch({
-            clientAttestationPoP.jwt.verify(ECDSAVerifier(context.clientAttestation.confirmationKey))
+            clientAttestationPoP.jwt.verify(NimbusECDSAVerifier(context.clientAttestation.confirmationKey))
         }) { false }
         ensure(signatureValid) {
             ClientAuthenticationError.InvalidClientAttestationPoPSignature
@@ -302,7 +301,7 @@ class AttestationBasedClientAuthenticator(
             ClientAuthenticationError.StaleClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "Stale Client Attestation PoP"
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> AttestationBasedClientAuthentication.USE_ATTESTATION_CHALLENGE_ERROR to "The Client Attestation PoP does not contain a valid Challenge"
             ClientAuthenticationError.InactiveClientAttestationPoP -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Client Attestation PoP is not active"
-            ClientAuthenticationError.ClientAttestationNotJadesBBConformant -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Wallet Instance Attestation is not JAdES-BASELINE-B conformant"
+            ClientAuthenticationError.InvalidSignature -> AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR to "The Wallet Instance Attestation signature is invalid"
         }
         val headers = when (clientAuthenticationError) {
             is ClientAuthenticationError.InvalidClientAttestationPoPChallenge -> mapOf(AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER to clientAuthenticationError.useAttestationChallenge.value)
@@ -359,7 +358,7 @@ private sealed interface ClientAuthenticationError {
     data object StaleClientAttestationPoP : ClientAuthenticationError
     data class InvalidClientAttestationPoPChallenge(val useAttestationChallenge: Challenge) : ClientAuthenticationError
     data object InactiveClientAttestationPoP : ClientAuthenticationError
-    data object ClientAttestationNotJadesBBConformant : ClientAuthenticationError
+    data object InvalidSignature : ClientAuthenticationError
 }
 
 class ClientAuthenticatorConfig(private val client: ClientModel, private val authenticator: AuthenticatorConfigModel?) {
@@ -490,7 +489,7 @@ class AttestationBasedClientAuthenticatorFactory : ClientAuthenticatorFactory {
         .add()
         .property()
         .name(ClientAuthenticatorConfig.CLIENT_ATTESTATION_VERIFY_JADES_BB_SIGNATURE)
-        .type(ProviderConfigProperty.BOOLEAN_TYPE)
+        .type(ProviderConfigProperty.LIST_TYPE)
         .defaultValue(true)
         .label("")
         .helpText("")

@@ -424,7 +424,7 @@ class AttestationBasedClientAuthenticatorTest {
             null,
             AuthenticationFlowError.INVALID_CLIENT_CREDENTIALS,
             AttestationBasedClientAuthentication.INVALID_CLIENT_ATTESTATION_ERROR,
-            "The Wallet Instance Attestation is not JAdES-BASELINE-B conformant",
+            "The Wallet Instance Attestation signature is invalid",
             httpClient,
         ) {
             assertFalse { AttestationBasedClientAuthentication.CLIENT_ATTESTATION_CHALLENGE_HEADER in it.headers }
