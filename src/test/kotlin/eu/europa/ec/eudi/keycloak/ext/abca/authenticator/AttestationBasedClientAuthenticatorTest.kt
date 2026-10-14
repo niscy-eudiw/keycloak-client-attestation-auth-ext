@@ -223,6 +223,36 @@ class AttestationBasedClientAuthenticatorTest {
     }
 
     @Test
+    fun `verify successful authentication with jades b b signature verification`() = runTest {
+        val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
+        val clientStatus = clientStatus()
+        val clientAttestation = clientAttestation(
+            confirmation = Confirmation.of(walletInstanceKey.toPublicJWK()),
+            clientStatus = clientStatus,
+            algorithm = JWSAlgorithm.ES256,
+            x5c = nonEmptyListOf(walletProviderCertificate),
+            signer = ECDSASigner(walletProviderKey),
+            jadesBProfile = true,
+        )
+        val challenge = Uuid.generateV7().toString().toChallenge()
+        val clientAttestationPoP = clientAttestationPoP(
+            challenge = challenge,
+            algorithm = JWSAlgorithm.ES256,
+            signer = ECDSASigner(walletInstanceKey),
+        )
+
+        val client = client(signatureVerificationMethod = ClientAuthenticatorConfig.SignatureVerificationMethod.JADES_BB)
+
+        testExpectingSuccess(
+            clientAttestation.serialize(),
+            clientAttestationPoP.serialize(),
+            clientStatus,
+            challenge,
+            client,
+        )
+    }
+
+    @Test
     fun `verify successful authentication when client attestation expired but withing allowed clock skew`() = runTest {
         val walletInstanceKey = ECKeyGenerator(Curve.P_256).generate()
         val clientStatus = clientStatus()
