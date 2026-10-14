@@ -430,7 +430,7 @@ class ClientAuthenticatorConfig(private val client: ClientModel, private val aut
      */
     enum class SignatureVerification(val value: String) {
         JWS("JWS signature verification"),
-        JADES_BB("JAdES B-B profile verification"),
+        JADES_BB("JAdES B-B signature verification"),
         ;
 
         companion object {
