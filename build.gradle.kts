@@ -30,9 +30,9 @@ dependencies {
     implementation(enforcedPlatform(libs.kotlinx.coroutines.bom))
     implementation(enforcedPlatform(libs.ktor.bom))
     implementation(enforcedPlatform(libs.arrow.stack))
-    implementation(enforcedPlatform(libs.keycloak.dependencies.server.all))
+    implementation(platform(libs.keycloak.dependencies.server.all))
     implementation(platform(libs.dss.bom))
-    testImplementation(enforcedPlatform(libs.jersey.bom))
+    testImplementation(platform(libs.jersey.bom))
 
     implementation(libs.kotlin.stdlib)
     testImplementation(libs.kotlin.test)
